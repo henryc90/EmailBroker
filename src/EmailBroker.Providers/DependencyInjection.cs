@@ -6,6 +6,7 @@ using EmailBroker.Providers.SendGrid;
 using EmailBroker.Providers.Ses;
 using EmailBroker.Providers.Smtp;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Polly;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -65,6 +66,15 @@ public static class DependencyInjection
             healthChecks.AddCheck<SendGridHealthCheck>("sendgrid", tags: ["email", "ready"]);
         if (hasSesConfig)
             healthChecks.AddCheck<SesHealthCheck>("ses", tags: ["email", "ready"]);
+
+        // Log which providers were configured at startup
+        var logger = services.BuildServiceProvider().GetService<ILoggerFactory>()?.CreateLogger("EmailBroker.Providers");
+        if (logger is not null)
+        {
+            logger.LogInformation(
+                "Health checks registered — Resend: {Resend}, SMTP: {Smtp}, SendGrid: {SendGrid}, SES: {Ses}",
+                hasResendConfig, hasSmtpConfig, hasSendGridConfig, hasSesConfig);
+        }
 
         return services;
     }

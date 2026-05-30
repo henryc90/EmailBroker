@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace EmailBroker.Providers.Resend;
@@ -7,11 +8,13 @@ public class ResendHealthCheck : IHealthCheck
 {
     private readonly HttpClient _httpClient;
     private readonly ResendOptions _options;
+    private readonly ILogger<ResendHealthCheck> _logger;
 
-    public ResendHealthCheck(HttpClient httpClient, IOptions<ResendOptions> options)
+    public ResendHealthCheck(HttpClient httpClient, IOptions<ResendOptions> options, ILogger<ResendHealthCheck> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _logger = logger;
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
@@ -19,9 +22,15 @@ public class ResendHealthCheck : IHealthCheck
         if (!IsConfigured())
             return HealthCheckResult.Unhealthy("Resend API token is not configured");
 
-        var apiToken = !string.IsNullOrEmpty(_options.ApiToken)
-            ? _options.ApiToken
-            : _options.Accounts?.FirstOrDefault(a => !string.IsNullOrEmpty(a.ApiToken))?.ApiToken ?? string.Empty;
+        var (apiToken, tokenSource) = ResolveToken();
+
+        var truncated = apiToken.Length > 6
+            ? apiToken[..(apiToken.IndexOf('_') >= 0 ? apiToken.IndexOf('_') + 4 : 6)] + "***"
+            : "***";
+
+        _logger.LogInformation(
+            "Resend health check — using token from {TokenSource}: {TruncatedToken}",
+            tokenSource, truncated);
 
         try
         {
@@ -36,13 +45,19 @@ public class ResendHealthCheck : IHealthCheck
             // A 401 would mean bad token
             if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
+                _logger.LogInformation("Resend API is reachable — {StatusCode}", response.StatusCode);
                 return HealthCheckResult.Healthy("Resend API is reachable");
             }
+
+            _logger.LogWarning(
+                "Resend API returned {StatusCode} with token from {TokenSource} ({TruncatedToken})",
+                response.StatusCode, tokenSource, truncated);
 
             return HealthCheckResult.Unhealthy($"Resend API returned {response.StatusCode}");
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Resend API is unreachable");
             return HealthCheckResult.Unhealthy("Resend API is unreachable", ex);
         }
     }
@@ -54,5 +69,17 @@ public class ResendHealthCheck : IHealthCheck
         if (_options.Accounts?.Any(a => !string.IsNullOrEmpty(a.ApiToken)) == true)
             return true;
         return false;
+    }
+
+    private (string Token, string Source) ResolveToken()
+    {
+        if (!string.IsNullOrEmpty(_options.ApiToken))
+            return (_options.ApiToken, "ApiToken (flat)");
+
+        var accountToken = _options.Accounts?.FirstOrDefault(a => !string.IsNullOrEmpty(a.ApiToken))?.ApiToken;
+        if (!string.IsNullOrEmpty(accountToken))
+            return (accountToken, "Accounts[0].ApiToken");
+
+        return (string.Empty, "none");
     }
 }

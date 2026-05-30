@@ -13,16 +13,35 @@ public static class EmailEndpoints
             SendEmailRequest request,
             IEmailSender emailSender,
             IValidator<SendEmailRequest> validator,
+            ILogger<Program> logger,
             CancellationToken ct) =>
         {
             var validationResult = await validator.ValidateAsync(request, ct);
             if (!validationResult.IsValid)
             {
+                logger.LogWarning("SendEmail validation failed: {Errors}", validationResult.Errors);
                 return Results.ValidationProblem(validationResult.ToDictionary());
             }
 
+            logger.LogInformation(
+                "Sending email — From: {From}, To: {To}, Subject: {Subject}, HasHtml: {HasHtml}",
+                request.From, string.Join(",", request.To), request.Subject, request.HtmlBody is not null);
+
             var message = MapToDomain(request);
             var result = await emailSender.SendAsync(message, ct);
+
+            if (result.Success)
+            {
+                logger.LogInformation(
+                    "Email sent successfully — MessageId: {MessageId}, Provider: {Provider}",
+                    result.MessageId, result.Provider);
+            }
+            else
+            {
+                logger.LogError(
+                    "Email send failed — Provider: {Provider}, ErrorType: {ErrorType}, ErrorMessage: {ErrorMessage}",
+                    result.Provider, result.ErrorType, result.ErrorMessage);
+            }
 
             return result.Success
                 ? Results.Ok(result)

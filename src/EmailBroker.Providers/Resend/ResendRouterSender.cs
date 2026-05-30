@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using EmailBroker.Core.Abstractions;
 using EmailBroker.Core.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Resend;
 using DomainMessage = EmailBroker.Core.Models.EmailMessage;
@@ -11,9 +12,11 @@ public class ResendRouterSender : IEmailSender
 {
     private readonly Dictionary<string, ResendEmailSender> _senders;
     private readonly ResendEmailSender? _defaultSender;
+    private readonly ILogger<ResendRouterSender> _logger;
 
-    public ResendRouterSender(IOptions<ResendOptions> options)
+    public ResendRouterSender(IOptions<ResendOptions> options, ILogger<ResendRouterSender> logger)
     {
+        _logger = logger;
         var opts = options.Value;
         _senders = new Dictionary<string, ResendEmailSender>(StringComparer.OrdinalIgnoreCase);
 
@@ -32,6 +35,13 @@ public class ResendRouterSender : IEmailSender
                     ApiToken = account.ApiToken
                 });
                 _senders[account.Domain] = new ResendEmailSender(senderOpts, client);
+
+                var truncated = account.ApiToken.Length > 6
+                    ? account.ApiToken[..(account.ApiToken.IndexOf('_') >= 0 ? account.ApiToken.IndexOf('_') + 4 : 6)] + "***"
+                    : "***";
+                _logger.LogInformation(
+                    "Resend sender registered — Domain: {Domain}, Token: {TruncatedToken}",
+                    account.Domain, truncated);
             }
         }
 
@@ -40,13 +50,32 @@ public class ResendRouterSender : IEmailSender
         {
             var client = CreateClient(opts.ApiUrl, opts.ApiToken);
             _defaultSender = new ResendEmailSender(options, client);
+            _logger.LogInformation("Resend sender registered — default (flat ApiToken)");
+        }
+
+        if (_senders.Count == 0 && _defaultSender is null)
+        {
+            _logger.LogWarning("Resend is not configured — no senders registered");
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Resend total senders: {Count} domain-specific, default: {HasDefault}",
+                _senders.Count, _defaultSender is not null);
         }
     }
 
-    public Task<SendEmailResponse> SendAsync(DomainMessage message, CancellationToken cancellationToken = default)
+    public async Task<SendEmailResponse> SendAsync(DomainMessage message, CancellationToken cancellationToken = default)
     {
-        var sender = ResolveSender(message.From);
-        return sender.SendAsync(message, cancellationToken);
+        var (sender, domain) = ResolveSender(message.From);
+        _logger.LogInformation(
+            "Resend sending email — Domain: {Domain}, From: {From}, To: {To}, Subject: {Subject}",
+            domain, message.From, string.Join(",", message.To), message.Subject);
+        var result = await sender.SendAsync(message, cancellationToken);
+        _logger.LogInformation(
+            "Resend send result — Success: {Success}, MessageId: {MessageId}, Error: {Error}",
+            result.Success, result.MessageId, result.ErrorMessage);
+        return result;
     }
 
     public async Task<IReadOnlyList<SendEmailResponse>> SendBatchAsync(
@@ -56,7 +85,7 @@ public class ResendRouterSender : IEmailSender
         // Group messages by sender so each goes through its own account
         var groups = messages
             .Select(m => (Message: m, Sender: ResolveSender(m.From)))
-            .GroupBy(x => x.Sender, ReferenceEqualityComparer.Instance);
+            .GroupBy(x => x.Sender.Sender, ReferenceEqualityComparer.Instance);
 
         var results = new List<SendEmailResponse>(messages.Count);
 
@@ -70,15 +99,15 @@ public class ResendRouterSender : IEmailSender
         return results.AsReadOnly();
     }
 
-    private ResendEmailSender ResolveSender(string from)
+    private (ResendEmailSender Sender, string? Domain) ResolveSender(string from)
     {
         var domain = ExtractDomain(from);
 
         if (domain is not null && _senders.TryGetValue(domain, out var sender))
-            return sender;
+            return (sender, domain);
 
         if (_defaultSender is not null)
-            return _defaultSender;
+            return (_defaultSender, domain ?? "unknown");
 
         throw new InvalidOperationException(
             $"No Resend account configured for domain '{domain}'. " +
@@ -90,8 +119,13 @@ public class ResendRouterSender : IEmailSender
         if (string.IsNullOrEmpty(from))
             return null;
 
+        // Support both "email@domain.com" and "Display Name <email@domain.com>"
         var idx = from.LastIndexOf('@');
-        return idx >= 0 ? from[(idx + 1)..] : null;
+        if (idx < 0)
+            return null;
+
+        var domain = from[(idx + 1)..].TrimEnd('>', ' ', ')');
+        return domain;
     }
 
     private static IResend CreateClient(string apiUrl, string apiToken)

@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\EmailBroker.Providers\EmailBroker.Providers.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <UserSecretsId>316a1242-0729-4bee-8a05-f062667c409a</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="EmailBroker.Api.Tests" />
+  </ItemGroup>
+
+</Project>

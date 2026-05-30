@@ -1,0 +1,31 @@
+# Build artifacts
+**/bin/
+**/obj/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.sln.DotSettings.user
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+**/appsettings.*.local.json
+**/appsettings.Development.json
+
+# Test projects
+tests/
+
+# Docs
+*.md
+ROADMAP.md
+
+# SDD artifacts
+sdd/

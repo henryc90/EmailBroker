@@ -54,6 +54,8 @@ public static class DependencyInjection
 
         if (hasSendGridConfig)
             services.AddHttpClient<SendGridHealthCheck>();
+        if (hasResendConfig)
+            services.AddHttpClient<ResendHealthCheck>();
 
         var healthChecks = services.AddHealthChecks();
         if (hasResendConfig)

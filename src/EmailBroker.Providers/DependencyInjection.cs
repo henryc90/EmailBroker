@@ -46,8 +46,7 @@ public static class DependencyInjection
         });
 
         // Health checks — only register providers with actual configuration
-        var hasResendConfig = !string.IsNullOrEmpty(configuration["Resend:ApiToken"])
-            || configuration.GetSection("Resend:Accounts").GetChildren().Any(a => !string.IsNullOrEmpty(a["ApiToken"]));
+        var hasResendConfig = !string.IsNullOrEmpty(configuration["Resend:ApiToken"]);
         var hasSmtpConfig = !string.IsNullOrEmpty(configuration["Smtp:Host"]);
         var hasSendGridConfig = !string.IsNullOrEmpty(configuration["SendGrid:ApiKey"]);
         var hasSesConfig = !string.IsNullOrEmpty(configuration["Ses:AccessKey"]);

@@ -62,24 +62,8 @@ public class ResendHealthCheck : IHealthCheck
         }
     }
 
-    private bool IsConfigured()
-    {
-        if (!string.IsNullOrEmpty(_options.ApiToken))
-            return true;
-        if (_options.Accounts?.Any(a => !string.IsNullOrEmpty(a.ApiToken)) == true)
-            return true;
-        return false;
-    }
+    private bool IsConfigured() => !string.IsNullOrEmpty(_options.ApiToken);
 
     private (string Token, string Source) ResolveToken()
-    {
-        if (!string.IsNullOrEmpty(_options.ApiToken))
-            return (_options.ApiToken, "ApiToken (flat)");
-
-        var accountToken = _options.Accounts?.FirstOrDefault(a => !string.IsNullOrEmpty(a.ApiToken))?.ApiToken;
-        if (!string.IsNullOrEmpty(accountToken))
-            return (accountToken, "Accounts[0].ApiToken");
-
-        return (string.Empty, "none");
-    }
+        => (_options.ApiToken, "ApiToken");
 }

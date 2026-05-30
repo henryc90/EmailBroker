@@ -19,6 +19,9 @@ public class SesHealthCheck : IHealthCheck
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrEmpty(_options.AccessKey) || string.IsNullOrEmpty(_options.SecretKey))
+            return HealthCheckResult.Unhealthy("SES credentials are not configured");
+
         try
         {
             var credentials = new BasicAWSCredentials(_options.AccessKey, _options.SecretKey);

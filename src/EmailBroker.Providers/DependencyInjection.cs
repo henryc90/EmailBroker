@@ -44,14 +44,27 @@ public static class DependencyInjection
             return new ResilientEmailSender(inner, resiliencePipeline);
         });
 
-        // Health checks
-        services.AddHttpClient<SendGridHealthCheck>();
-        services.AddHttpClient<ResendHealthCheck>();
-        services.AddHealthChecks()
-            .AddCheck<ResendHealthCheck>("resend", tags: ["email", "ready"])
-            .AddCheck<SmtpHealthCheck>("smtp", tags: ["email", "ready"])
-            .AddCheck<SendGridHealthCheck>("sendgrid", tags: ["email", "ready"])
-            .AddCheck<SesHealthCheck>("ses", tags: ["email", "ready"]);
+        // Health checks — only register providers with actual configuration
+        var hasResendConfig = !string.IsNullOrEmpty(configuration["Resend:ApiToken"])
+            || configuration.GetSection("Resend:Accounts").GetChildren().Any(a => !string.IsNullOrEmpty(a["ApiToken"]));
+        var hasSmtpConfig = !string.IsNullOrEmpty(configuration["Smtp:Host"]);
+        var hasSendGridConfig = !string.IsNullOrEmpty(configuration["SendGrid:ApiKey"]);
+        var hasSesConfig = !string.IsNullOrEmpty(configuration["Ses:AccessKey"]);
+
+        if (hasSendGridConfig)
+            services.AddHttpClient<SendGridHealthCheck>();
+        if (hasResendConfig)
+            services.AddHttpClient<ResendHealthCheck>();
+
+        var healthChecks = services.AddHealthChecks();
+        if (hasResendConfig)
+            healthChecks.AddCheck<ResendHealthCheck>("resend", tags: ["email", "ready"]);
+        if (hasSmtpConfig)
+            healthChecks.AddCheck<SmtpHealthCheck>("smtp", tags: ["email", "ready"]);
+        if (hasSendGridConfig)
+            healthChecks.AddCheck<SendGridHealthCheck>("sendgrid", tags: ["email", "ready"]);
+        if (hasSesConfig)
+            healthChecks.AddCheck<SesHealthCheck>("ses", tags: ["email", "ready"]);
 
         return services;
     }

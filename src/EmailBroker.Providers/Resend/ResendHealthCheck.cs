@@ -16,15 +16,17 @@ public class ResendHealthCheck : IHealthCheck
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(_options.ApiToken))
-        {
+        if (!IsConfigured())
             return HealthCheckResult.Unhealthy("Resend API token is not configured");
-        }
+
+        var apiToken = !string.IsNullOrEmpty(_options.ApiToken)
+            ? _options.ApiToken
+            : _options.Accounts?.FirstOrDefault(a => !string.IsNullOrEmpty(a.ApiToken))?.ApiToken ?? string.Empty;
 
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Get, "https://api.resend.com/emails?limit=1");
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.ApiToken);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiToken);
             request.Headers.UserAgent.ParseAdd("EmailBroker/1.0");
 
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -43,5 +45,14 @@ public class ResendHealthCheck : IHealthCheck
         {
             return HealthCheckResult.Unhealthy("Resend API is unreachable", ex);
         }
+    }
+
+    private bool IsConfigured()
+    {
+        if (!string.IsNullOrEmpty(_options.ApiToken))
+            return true;
+        if (_options.Accounts?.Any(a => !string.IsNullOrEmpty(a.ApiToken)) == true)
+            return true;
+        return false;
     }
 }

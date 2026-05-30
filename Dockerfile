@@ -29,10 +29,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security (UID/GID 1000 = dokploy default)
-RUN addgroup --system --gid 1000 app \
-    && adduser --system --uid 1000 --gid 1000 app
-
+# Use the existing 'app' user from the base image (UID 1654)
+# Dokploy can map this user via securityContext if needed
 WORKDIR /app
 
 # Copy published artifacts from build stage

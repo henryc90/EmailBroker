@@ -11,6 +11,9 @@ public class ResendHealthCheck : IHealthCheck
     private readonly ResendOptions _options;
     private readonly ILogger<ResendHealthCheck> _logger;
 
+    private static HealthCheckResult? _cachedResult;
+    private static readonly Lock _cacheLock = new();
+
     public ResendHealthCheck(HttpClient httpClient, IOptions<ResendOptions> options, ILogger<ResendHealthCheck> logger)
     {
         _httpClient = httpClient;
@@ -20,12 +23,16 @@ public class ResendHealthCheck : IHealthCheck
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
+        // Return cached result after first validation — avoids hitting Resend API on every check
+        if (_cachedResult.HasValue)
+            return _cachedResult.Value;
+
         var (apiToken, tokenSource) = ResolveToken();
 
         if (string.IsNullOrEmpty(apiToken))
         {
             _logger.LogWarning("Resend is not configured — no ApiToken and no Accounts");
-            return HealthCheckResult.Unhealthy("Resend API token is not configured");
+            return Cache(HealthCheckResult.Unhealthy("Resend API token is not configured"));
         }
 
         var truncated = apiToken.Length > 6
@@ -33,7 +40,7 @@ public class ResendHealthCheck : IHealthCheck
             : "***";
 
         _logger.LogInformation(
-            "Resend health check — using token from {TokenSource}: {TruncatedToken}",
+            "Resend health check — validating token from {TokenSource}: {TruncatedToken}",
             tokenSource, truncated);
 
         try
@@ -51,8 +58,8 @@ public class ResendHealthCheck : IHealthCheck
 
             if (response.StatusCode == System.Net.HttpStatusCode.UnprocessableContent)
             {
-                _logger.LogInformation("Resend API is reachable — token validated (422)");
-                return HealthCheckResult.Healthy("Resend API is reachable");
+                _logger.LogInformation("Resend API is reachable — token validated (422). Caching result.");
+                return Cache(HealthCheckResult.Healthy("Resend API is reachable"));
             }
 
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
@@ -60,20 +67,29 @@ public class ResendHealthCheck : IHealthCheck
                 _logger.LogWarning(
                     "Resend API returned 401 — token from {TokenSource} ({TruncatedToken}) is invalid",
                     tokenSource, truncated);
-                return HealthCheckResult.Unhealthy("Resend API token is invalid");
+                return Cache(HealthCheckResult.Unhealthy("Resend API token is invalid"));
             }
 
             _logger.LogWarning(
                 "Resend API returned unexpected {StatusCode} with token from {TokenSource} ({TruncatedToken})",
                 response.StatusCode, tokenSource, truncated);
 
-            return HealthCheckResult.Unhealthy($"Resend API returned {response.StatusCode}");
+            return Cache(HealthCheckResult.Unhealthy($"Resend API returned {response.StatusCode}"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Resend API is unreachable");
-            return HealthCheckResult.Unhealthy("Resend API is unreachable", ex);
+            return Cache(HealthCheckResult.Unhealthy("Resend API is unreachable", ex));
         }
+    }
+
+    private HealthCheckResult Cache(HealthCheckResult result)
+    {
+        lock (_cacheLock)
+        {
+            _cachedResult ??= result;
+        }
+        return _cachedResult!.Value;
     }
 
     private (string Token, string Source) ResolveToken()
